@@ -29,6 +29,8 @@ let
       ]
     else
       throw "You need to specify which variant you want: CPU, ROCm, or CUDA.";
+  rocmIndexUrl = "https://download.pytorch.org/whl/rocm6.4";
+  pythonForVenv = pkgs.python312;
 in
 pkgs.mkShell rec {
   name = "comfyui-shell";
@@ -60,12 +62,10 @@ pkgs.mkShell rec {
       libGLU
       libGL
       glib
+      zstd
     ];
 
   venvDir = ".venv";
-  packages = with pkgs.python310Packages; [
-    venvShellHook
-  ];
 
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   CUDA_PATH = pkgs.lib.optionalString (
@@ -76,4 +76,22 @@ pkgs.mkShell rec {
       "-L${
         (if variant == "CUDA" then pkgs.linuxPackages.nvidia_x11 else pkgs.linuxPackages.nvidia_x11_beta)
       }/lib";
+
+  shellHook =
+    ''
+      VENV_PATH="${venvDir}"
+      if [ ! -d "$VENV_PATH" ]; then
+        echo "Creating Python virtualenv at $VENV_PATH"
+        ${pythonForVenv}/bin/python -m venv "$VENV_PATH"
+      fi
+      # shellcheck disable=SC1090
+      source "$VENV_PATH/bin/activate"
+      export PIP_DISABLE_PIP_VERSION_CHECK=1
+    ''
+    + pkgs.lib.optionalString (variant == "ROCM") ''
+      export PIP_INDEX_URL="${rocmIndexUrl}"
+      export PIP_EXTRA_INDEX_URL="https://pypi.org/simple"
+      echo "ROCm devshell: pip will pull torch/vision/audio wheels from ${rocmIndexUrl}"
+      echo "If you previously installed CUDA wheels, run 'rm -rf ${venvDir}' before reinstalling requirements."
+    '';
 }
